@@ -21,6 +21,8 @@ The playbook installs and activates these bundled plugins from `templates/plugin
 
 - `wp-autosuggest.0.24.zip`
 - `wp-site-import.1.0.1.zip`
+- a vulnerable site editor component referenced in the course material
+- an exposed upload workflow used for the lab narrative
 
 ## Lab Notes
 
@@ -69,6 +71,11 @@ make verify
 - the `webmaster` user exists
 - bundled WordPress plugins are active
 
+## Documentation
+
+- `docs/ATTACK_SURFACE.md`: vulnerable components, intended findings, and lab storyline
+- `docs/METHODOLOGY.md`: recon, enumeration, password auditing, web testing, and post-exploitation topics covered in class
+
 ## Shell Configuration
 
 The playbook appends the following shell preferences to both `/root/.bashrc` and `/home/tty0/.bashrc`:
@@ -87,4 +94,5 @@ export PAGER=vim
 - `lab.yml`: main Ansible playbook
 - `inventory.ini`: target host inventory
 - `Makefile`: convenience targets for create, remove, and verify
+- `docs/`: supporting course and scenario documentation
 - `templates/`: nginx, PHP-FPM, WordPress, and plugin assets
