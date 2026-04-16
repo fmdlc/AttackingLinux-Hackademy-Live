@@ -1,0 +1,516 @@
+- hosts: lab
+  become: yes
+  vars:
+    mode: create
+    wp_backup: /home/tty0/wordpress.tar.gz
+    wordpress_archive_url: https://wordpress.org/latest.tar.gz
+    wordpress_download_path: /tmp/wordpress-latest.tar.gz
+    wordpress_install_path: /var/www/wordpress
+    wordpress_plugins_remote_path: /tmp/wordpress-plugins
+    wordpress_site_title: "Hackademy WordPress"
+    wordpress_admin_user: admin
+    wordpress_admin_password: Hackademy
+    wordpress_admin_email: admin@example.com
+    webmaster_user: webmaster
+    webmaster_password: Pass123
+    server_name: "_"
+    wordpress_db_name: wordpress
+    wordpress_db_user: wpadmin
+    wordpress_db_password: Ferrari
+    database_service_name: mariadb
+    database_client_command: mariadb
+    shell_profile_block: |
+      set -o vi
+      bind '"\C-l": clear-screen'
+      export PATH=$PATH:/home/tty0/.local/bin
+      export VISUAL=vim
+      export EDITOR=vim
+      export PAGER=vim
+
+  tasks:
+
+    # =========================
+    # BASE PACKAGES
+    # =========================
+
+    - name: Ensure base packages are installed
+      apt:
+        name:
+          - net-tools
+          - nginx
+          - mariadb-server
+          - vsftpd
+          - php-fpm
+          - php-mysql
+          - php-curl
+          - php-gd
+          - php-xml
+          - php-mbstring
+          - php-zip
+          - php-intl
+          - curl
+          - tar
+          - unzip
+        state: present
+        update_cache: yes
+      when: mode == "create"
+
+    # =========================
+    # DETECT PHP
+    # =========================
+
+    - name: Detect PHP version
+      shell: ls /etc/php | sort -V | tail -n1
+      register: php_version
+      changed_when: false
+
+    - name: Set php-fpm service name
+      set_fact:
+        php_fpm_service: "php{{ php_version.stdout }}-fpm"
+
+    - name: Set php socket path
+      set_fact:
+        php_socket: "/run/php/{{ php_fpm_service }}.sock"
+
+    - name: Set WordPress site URL
+      set_fact:
+        wordpress_site_url: "http://{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+
+    # =========================
+    # CREATE MODE
+    # =========================
+
+    - name: Restore WordPress
+      unarchive:
+        src: "{{ wp_backup }}"
+        dest: /var/www/
+        remote_src: yes
+      when: mode == "create"
+      ignore_errors: yes
+
+    - name: Check whether WordPress is already installed
+      stat:
+        path: "{{ wordpress_install_path }}/wp-settings.php"
+      register: wordpress_installation
+      when: mode == "create"
+
+    - name: Download WordPress archive when installation is missing
+      get_url:
+        url: "{{ wordpress_archive_url }}"
+        dest: "{{ wordpress_download_path }}"
+        mode: "0644"
+      when:
+        - mode == "create"
+        - not wordpress_installation.stat.exists
+
+    - name: Extract WordPress archive when installation is missing
+      unarchive:
+        src: "{{ wordpress_download_path }}"
+        dest: /var/www/
+        remote_src: yes
+      when:
+        - mode == "create"
+        - not wordpress_installation.stat.exists
+
+    - name: Ensure WordPress permissions
+      file:
+        path: /var/www/wordpress
+        owner: www-data
+        group: www-data
+        recurse: yes
+      when: mode == "create"
+
+    - name: Set WordPress permissions to 777
+      file:
+        path: "{{ wordpress_install_path }}"
+        mode: "0777"
+        recurse: yes
+      when: mode == "create"
+
+    - name: Ensure /var/www/html exists for the demo
+      file:
+        path: /var/www/html
+        state: directory
+        owner: "{{ webmaster_user }}"
+        group: "{{ webmaster_user }}"
+        mode: "0777"
+      when: mode == "create"
+
+    - name: Set insecure permissions on /var/www/html contents
+      file:
+        path: /var/www/html
+        mode: "0777"
+        recurse: yes
+      when: mode == "create"
+
+    - name: Deploy nginx config
+      template:
+        src: templates/wordpress.conf.j2
+        dest: /etc/nginx/sites-available/wordpress
+      when: mode == "create"
+      notify: reload nginx
+
+    - name: Enable nginx site
+      file:
+        src: /etc/nginx/sites-available/wordpress
+        dest: /etc/nginx/sites-enabled/wordpress
+        state: link
+      when: mode == "create"
+
+    - name: Deploy php-fpm pool config
+      template:
+        src: templates/php-fpm.conf.j2
+        dest: "/etc/php/{{ php_version.stdout }}/fpm/pool.d/www.conf"
+      when: mode == "create"
+      notify: restart php
+
+    - name: Validate nginx config
+      command: nginx -t
+      register: nginx_test
+      failed_when: nginx_test.rc != 0
+      changed_when: false
+      when: mode == "create"
+
+    - name: Ensure wpadmin user exists
+      user:
+        name: wpadmin
+        shell: /bin/bash
+        create_home: yes
+        state: present
+      when: mode == "create"
+
+    - name: Ensure webmaster user exists
+      user:
+        name: "{{ webmaster_user }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+      when: mode == "create"
+
+    - name: Ensure shell profile settings for root and tty0
+      blockinfile:
+        path: "{{ item }}"
+        create: yes
+        marker: "# {mark} HACKADEMY SHELL SETUP"
+        block: "{{ shell_profile_block }}"
+      loop:
+        - /root/.bashrc
+        - /home/tty0/.bashrc
+      when: mode == "create"
+
+    - name: Set webmaster password
+      shell: echo '{{ webmaster_user }}:{{ webmaster_password }}' | chpasswd
+      when: mode == "create"
+
+    - name: Ensure demo directories exist in webmaster home
+      file:
+        path: "/home/{{ webmaster_user }}/{{ item }}"
+        state: directory
+        owner: "{{ webmaster_user }}"
+        group: "{{ webmaster_user }}"
+        mode: "0755"
+      loop:
+        - uploads
+        - backups
+        - notes
+        - old
+      when: mode == "create"
+
+    - name: Create demo files in webmaster home
+      copy:
+        dest: "/home/{{ webmaster_user }}/{{ item.path }}"
+        content: "{{ item.content }}"
+        owner: "{{ webmaster_user }}"
+        group: "{{ webmaster_user }}"
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - path: readme.txt
+          content: |
+            Webmaster workspace
+            Temporary files for the website migration.
+        - path: notes/todo.txt
+          content: |
+            - review wordpress theme
+            - clean old backups
+            - verify ftp access
+            - update contact form
+        - path: notes/ideas.md
+          content: |
+            # Ideas
+
+            Maybe move the blog to a new theme next month.
+            Check whether old imports are still needed.
+        - path: uploads/banner-copy.txt
+          content: |
+            Banner draft placeholder
+            final-banner-v3.png was not uploaded yet.
+        - path: backups/site-backup-2024-11-02.txt
+          content: |
+            Archive index
+            - wordpress-files.tar.gz
+            - db-export.sql
+            - media-library.tar.gz
+        - path: backups/accounts.csv
+          content: |
+            service,username,status
+            wordpress,admin,active
+            ftp,webmaster,active
+            db,wpadmin,active
+        - path: old/draft-post.txt
+          content: |
+            This is an old blog draft.
+            Remove before publishing.
+        - path: old/image-list.log
+          content: |
+            hero.jpg
+            team.jpg
+            office.png
+            footer-logo.svg
+      when: mode == "create"
+
+    - name: Ensure vsftpd allows local logins and writes
+      lineinfile:
+        path: /etc/vsftpd.conf
+        regexp: '^{{ item.key }}='
+        line: '{{ item.key }}={{ item.value }}'
+      loop:
+        - { key: 'local_enable', value: 'YES' }
+        - { key: 'write_enable', value: 'YES' }
+      when: mode == "create"
+      notify: restart vsftpd
+
+    - name: Ensure database secure-file-priv directory exists
+      file:
+        path: /var/lib/mysql-files
+        state: directory
+        owner: mysql
+        group: mysql
+        mode: "0750"
+      when: mode == "create"
+
+    - name: Ensure database service is started and enabled
+      service:
+        name: "{{ database_service_name }}"
+        state: started
+        enabled: yes
+      when: mode == "create"
+
+    - name: Wait for database socket to become available
+      wait_for:
+        path: /run/mysqld/mysqld.sock
+        state: present
+        timeout: 30
+      when: mode == "create"
+
+    - name: Ensure WordPress database exists
+      command: >
+        {{ database_client_command }} -e "CREATE DATABASE IF NOT EXISTS {{ wordpress_db_name }}
+        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+      when: mode == "create"
+
+    - name: Ensure WordPress database user exists
+      command: >
+        {{ database_client_command }} -e "CREATE USER IF NOT EXISTS '{{ wordpress_db_user }}'@'localhost'
+        IDENTIFIED BY '{{ wordpress_db_password }}';"
+      when: mode == "create"
+
+    - name: Ensure WordPress database user password is up to date
+      command: >
+        {{ database_client_command }} -e "ALTER USER '{{ wordpress_db_user }}'@'localhost'
+        IDENTIFIED BY '{{ wordpress_db_password }}';"
+      when: mode == "create"
+
+    - name: Ensure WordPress database user has privileges
+      command: >
+        {{ database_client_command }} -e "GRANT ALL PRIVILEGES ON {{ wordpress_db_name }}.* TO
+        '{{ wordpress_db_user }}'@'localhost'; FLUSH PRIVILEGES;"
+      when: mode == "create"
+
+    - name: Deploy WordPress config
+      template:
+        src: templates/wp-config.php.j2
+        dest: "{{ wordpress_install_path }}/wp-config.php"
+        owner: www-data
+        group: www-data
+        mode: "0640"
+      when: mode == "create"
+
+    - name: Create backup archive for wp-config.php
+      archive:
+        path: "{{ wordpress_install_path }}/wp-config.php"
+        dest: "{{ wordpress_install_path }}/backup.tgz"
+        format: gz
+      when: mode == "create"
+
+    - name: Ensure WP-CLI is installed
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: "0755"
+      when: mode == "create"
+
+    - name: Check whether WordPress site is installed
+      command: wp core is-installed --path={{ wordpress_install_path }} --allow-root
+      register: wordpress_core_installed
+      changed_when: false
+      failed_when: false
+      when: mode == "create"
+
+    - name: Install WordPress site
+      command: >
+        wp core install
+        --path={{ wordpress_install_path }}
+        --url={{ wordpress_site_url }}
+        --title={{ wordpress_site_title | quote }}
+        --admin_user={{ wordpress_admin_user }}
+        --admin_password={{ wordpress_admin_password }}
+        --admin_email={{ wordpress_admin_email }}
+        --skip-email
+        --allow-root
+      when:
+        - mode == "create"
+        - wordpress_core_installed.rc != 0
+
+    - name: Ensure WordPress home URL is correct
+      command: >
+        wp option update home {{ wordpress_site_url }}
+        --path={{ wordpress_install_path }}
+        --allow-root
+      when: mode == "create"
+
+    - name: Ensure WordPress site URL is correct
+      command: >
+        wp option update siteurl {{ wordpress_site_url }}
+        --path={{ wordpress_install_path }}
+        --allow-root
+      when: mode == "create"
+
+    - name: Ensure temporary WordPress plugins directory exists
+      file:
+        path: "{{ wordpress_plugins_remote_path }}"
+        state: directory
+        mode: "0755"
+      when: mode == "create"
+
+    - name: Copy bundled WordPress plugins to remote host
+      copy:
+        src: "{{ item }}"
+        dest: "{{ wordpress_plugins_remote_path }}/"
+        mode: "0644"
+      loop: "{{ query('fileglob', 'templates/plugins/*.zip') }}"
+      when: mode == "create"
+
+    - name: Install and activate bundled WordPress plugins
+      command: >
+        wp plugin install {{ wordpress_plugins_remote_path }}/{{ item | basename }}
+        --activate
+        --force
+        --path={{ wordpress_install_path }}
+        --allow-root
+      loop: "{{ query('fileglob', 'templates/plugins/*.zip') }}"
+      when: mode == "create"
+
+    - name: Start and enable services
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - nginx
+        - "{{ php_fpm_service }}"
+        - vsftpd
+        - smbd
+        - nmbd
+      when: mode == "create"
+      ignore_errors: yes
+
+    - name: Enable SSH password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication yes'
+      when: mode == "create"
+      notify: restart ssh
+
+    # =========================
+    # REMOVE MODE
+    # =========================
+
+    - name: Backup WordPress
+      archive:
+        path: /var/www/wordpress
+        dest: "{{ wp_backup }}"
+      when: mode == "remove"
+      ignore_errors: yes
+
+    - name: Disable SSH password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      when: mode == "remove"
+      notify: restart ssh
+
+
+    - name: Remove WordPress directory
+      file:
+        path: /var/www/wordpress
+        state: absent
+      when: mode == "remove"
+
+    - name: Disable nginx site
+      file:
+        path: /etc/nginx/sites-enabled/wordpress
+        state: absent
+      when: mode == "remove"
+
+    - name: Stop and disable services
+      service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - nginx
+        - "{{ php_fpm_service }}"
+        - "{{ database_service_name }}"
+        - vsftpd
+        - smbd
+        - nmbd
+      when: mode == "remove"
+      ignore_errors: yes
+
+    - name: Remove wpadmin user
+      user:
+        name: wpadmin
+        state: absent
+        remove: yes
+      when: mode == "remove"
+
+    - name: Remove webmaster user
+      user:
+        name: webmaster
+        state: absent
+        remove: yes
+      when: mode == "remove"
+
+  handlers:
+
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded
+
+    - name: restart php
+      service:
+        name: "{{ php_fpm_service }}"
+        state: restarted
+
+    - name: restart vsftpd
+      service:
+        name: vsftpd
+        state: restarted
+
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted
