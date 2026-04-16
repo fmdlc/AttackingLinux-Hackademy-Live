@@ -1,6 +1,6 @@
 # Attack Surface
 
-This lab is designed for the **Attacking Linux** course at **EKoparty Hackademy**. The machine intentionally combines weak service configuration, exposed content, and vulnerable web application components to support guided exploitation and post-exploitation exercises in an isolated environment.
+This lab is designed for the **Attacking Linux** course at **Ekoparty Hackademy**. The machine intentionally combines weak service configuration, exposed content, and vulnerable web application components to support guided exploitation and post-exploitation exercises in an isolated environment.
 
 ## Core Services
 

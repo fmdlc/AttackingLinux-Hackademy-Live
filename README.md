@@ -1,6 +1,6 @@
 # Attacking Linux Lab Bootstrap
 
-Ansible bootstrap for my **Attacking Linux** class at **EKoparty Hackademy**.
+Ansible bootstrap for my **Attacking Linux** class at **Ekoparty Hackademy**.
 
 This repository provisions a deliberately vulnerable Ubuntu lab VM used for demos and exercises. The target environment is designed to be easy to reset and quick to verify during class.
 
