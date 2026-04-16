@@ -4,6 +4,8 @@ Ansible bootstrap for my **Attacking Linux** class at **Ekoparty Hackademy**.
 
 This repository provisions a deliberately vulnerable Ubuntu lab VM used for demos and exercises. The target environment is designed to be easy to reset and quick to verify during class.
 
+In addition to the vulnerable lab bootstrap, the repository also includes a separate safe baseline playbook for quickly preparing a clean Ubuntu environment with a minimal operator toolset and shell preferences.
+
 ## What It Deploys
 
 - WordPress served from `/var/www/wordpress`
@@ -68,6 +70,12 @@ Provision the lab:
 make create
 ```
 
+Provision the safe baseline:
+
+```bash
+make secure
+```
+
 Remove the lab:
 
 ```bash
@@ -88,6 +96,20 @@ make verify
 - `/var/www/html` exists with the expected demo permissions
 - the `webmaster` user exists
 - bundled WordPress plugins are active
+
+## Safe Baseline
+
+The `make secure` target runs `secure.yml` and prepares a non-lab baseline on the target host. It:
+
+- updates the apt cache
+- upgrades installed packages
+- installs `net-tools`
+- installs `curl`
+- installs `tcpdump`
+- installs `vim`
+- appends the shared shell configuration block to `/root/.bashrc` and `/home/tty0/.bashrc`
+
+This target is useful when you want the operator environment and baseline packages without deploying the intentionally vulnerable WordPress lab.
 
 ## Documentation
 
@@ -110,6 +132,7 @@ export PAGER=vim
 ## Repository Layout
 
 - `lab.yml`: main Ansible playbook
+- `secure.yml`: safe baseline playbook
 - `inventory.ini`: target host inventory
 - `Makefile`: convenience targets for create, remove, and verify
 - `docs/`: supporting course and scenario documentation
