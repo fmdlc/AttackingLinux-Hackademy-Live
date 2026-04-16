@@ -385,6 +385,14 @@
         --allow-root
       when: mode == "create"
 
+    - name: Ensure WordPress admin password is correct
+      command: >
+        wp user update {{ wordpress_admin_user }}
+        --user_pass={{ wordpress_admin_password }}
+        --path={{ wordpress_install_path }}
+        --allow-root
+      when: mode == "create"
+
     - name: Ensure temporary WordPress plugins directory exists
       file:
         path: "{{ wordpress_plugins_remote_path }}"
