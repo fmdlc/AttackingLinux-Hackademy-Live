@@ -140,22 +140,6 @@
         recurse: yes
       when: mode == "create"
 
-    - name: Ensure /var/www/html exists for the demo
-      file:
-        path: /var/www/html
-        state: directory
-        owner: "{{ webmaster_user }}"
-        group: "{{ webmaster_user }}"
-        mode: "0777"
-      when: mode == "create"
-
-    - name: Set insecure permissions on /var/www/html contents
-      file:
-        path: /var/www/html
-        mode: "0777"
-        recurse: yes
-      when: mode == "create"
-
     - name: Deploy nginx config
       template:
         src: templates/wordpress.conf.j2
@@ -198,6 +182,22 @@
         shell: /bin/bash
         create_home: yes
         state: present
+      when: mode == "create"
+
+    - name: Ensure /var/www/html exists for the demo
+      file:
+        path: /var/www/html
+        state: directory
+        owner: "{{ webmaster_user }}"
+        group: "{{ webmaster_user }}"
+        mode: "0777"
+      when: mode == "create"
+
+    - name: Set insecure permissions on /var/www/html contents
+      file:
+        path: /var/www/html
+        mode: "0777"
+        recurse: yes
       when: mode == "create"
 
     - name: Ensure shell profile settings for root and tty0
